@@ -84,8 +84,9 @@ A small always-on-top window appears near the cursor:
 
 ### 5.4 Result UI
 
-- Streaming output in a readable text area, shown alongside the original selection for comparison.
-- Action buttons: **Replace**, **Copy**, **Regenerate**, **Edit prompt & rerun**, **Cancel**.
+- Streaming output in a single readable text area. The original selection is not shown — it already lives in the source app, and a side-by-side view would slow down the interaction and double the popup's footprint.
+- A compact header shows the active prompt name and the model in use. A small "tweak prompt" pencil affordance next to the prompt name lets the user adjust the prompt and rerun without leaving the popup — this is the escape hatch when a rewrite drifts from intent.
+- Action buttons in the footer: **Replace**, **Copy**, **Regenerate**, **Cancel**.
 - Replace re-focuses the previously active app and pastes the result over the original selection.
 - Copy puts the result on the clipboard and leaves the source untouched.
 - Regenerate runs the same prompt again on the same input.
