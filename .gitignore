@@ -1,0 +1,137 @@
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+.DocumentRevisions-V100
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# ---- Rust ----
+target/
+**/*.rs.bk
+*.pdb
+Cargo.lock.bak
+# Keep Cargo.lock at the workspace root for the binary crates (Newt is a binary).
+# If a sub-crate is published as a library, ignore its Cargo.lock individually.
+
+# ---- Tauri ----
+src-tauri/target/
+src-tauri/Cargo.lock.bak
+src-tauri/gen/schemas/
+src-tauri/WixTools/
+
+# ---- Node / frontend (React or Svelte + TS) ----
+node_modules/
+.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.log
+.yarn/install-state.gz
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output (Vite / webpack / Svelte / Next-ish)
+dist/
+dist-ssr/
+build/
+.svelte-kit/
+.next/
+.nuxt/
+out/
+.cache/
+.parcel-cache/
+.vite/
+
+# TypeScript
+*.tsbuildinfo
+
+# ---- Editors / IDEs ----
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.swp
+*.swo
+*~
+.zed/
+.cursor/
+
+# ---- Xcode / Swift bridges ----
+xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.xcuserstate
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- Packaging / release artifacts ----
+# Notarized DMGs, signed bundles, and Sparkle update payloads are produced in CI
+# and published to GitHub Releases — never check them into git.
+*.dmg
+*.pkg
+*.zip
+*.tar.gz
+*.app/
+release/
+releases/
+artifacts/
+
+# ---- Secrets and local config ----
+# API keys live in macOS Keychain; nothing key-bearing should ever land in the repo.
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+secrets/
+.secrets/
+
+# Apple notarization / signing
+notarization-*.json
+AuthKey_*.p8
+api_key.json
+
+# ---- Logs and runtime state ----
+*.log
+logs/
+*.pid
+*.sock
+*.local
+
+# ---- Test / coverage ----
+coverage/
+*.lcov
+.nyc_output/
+htmlcov/
+.pytest_cache/
+tarpaulin-report.html
+cobertura.xml
+
+# Snapshot review artifacts (insta) — committed snapshots stay; pending diffs do not
+**/*.snap.new
+**/.pending-snap
+
+# ---- Tooling caches ----
+.eslintcache
+.stylelintcache
+.turbo/
+.rush/
+
+# ---- Local AI / agent scratch ----
+.aider*
+.claude/
