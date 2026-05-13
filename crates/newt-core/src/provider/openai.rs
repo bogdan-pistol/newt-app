@@ -59,9 +59,17 @@ impl Provider for OpenAiProvider {
         on_event: &mut dyn FnMut(RewriteEvent),
     ) -> Result<()> {
         let model = request.model.as_deref().unwrap_or(&self.default_model);
+        let mut messages: Vec<serde_json::Value> = Vec::with_capacity(2);
+        if let Some(sys) = &request.system
+            && !sys.is_empty()
+        {
+            messages.push(json!({ "role": "system", "content": sys }));
+        }
+        messages.push(json!({ "role": "user", "content": request.user }));
+
         let body = json!({
             "model": model,
-            "messages": [{ "role": "user", "content": request.prompt }],
+            "messages": messages,
             "stream": true,
             "stream_options": { "include_usage": true },
         });

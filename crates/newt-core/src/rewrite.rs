@@ -1,10 +1,10 @@
 //! The rewrite pipeline: prompt + selection + provider → streamed events.
 //!
-//! Loads the named prompt (from disk or bundled defaults), renders the
-//! template with the user's selection, and hands the result to the provider.
-//! Events flow back through `on_event`. This is the single function that
-//! everything user-facing — CLI, future GUI, future Tauri commands — calls
-//! to perform a rewrite.
+//! Loads the named prompt (from disk or bundled defaults) and dispatches a
+//! `RewriteRequest` where the prompt's instructions live in the `system`
+//! channel and the user's selection lives in the `user` channel — never
+//! concatenated. This is the structural separation that makes the pipeline
+//! resistant to prompt injection.
 
 use anyhow::Result;
 
@@ -12,7 +12,6 @@ use crate::{
     paths::Paths,
     prompt,
     provider::{Provider, RewriteEvent, RewriteRequest},
-    template,
 };
 
 /// Run a rewrite end-to-end. The provider's events are forwarded verbatim
@@ -26,10 +25,10 @@ pub fn run(
     on_event: &mut dyn FnMut(RewriteEvent),
 ) -> Result<()> {
     let prompt = prompt::load(paths, prompt_id)?;
-    let rendered = template::render(&prompt.template, selection);
     let request = RewriteRequest {
-        prompt: rendered,
-        model: prompt.model.clone(),
+        system: Some(prompt.instructions),
+        user: selection.to_string(),
+        model: prompt.model,
     };
     provider.rewrite(&request, on_event)
 }

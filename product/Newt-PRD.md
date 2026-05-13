@@ -95,7 +95,7 @@ A small always-on-top window appears near the cursor:
 ### 5.5 Prompts
 
 - Stored as plain text files in the user's app support directory, one prompt per file.
-- Each prompt file contains: name, description, optional emoji, optional model override, and the prompt template. The template includes a placeholder for the selected text and, in Phase 2, additional context placeholders.
+- Each prompt file contains: name, description, optional emoji, optional model override, and the prompt instructions. The instructions are sent verbatim as the LLM's system message; the user's selection is sent as a separate user message — this structural split keeps adversarial content in the selection from being interpreted as instructions. Phase 9+ may add context substitutions (source app, surrounding paragraphs) that interpolate into the instructions; the user channel always carries only the selection.
 - Newt ships with a curated default set: Improve writing, Fix grammar, Make concise, Make formal, Make casual, Summarize, Bullet points, Translate to English.
 - Settings UI provides a list editor and a "Reveal in Finder" affordance for power users who want to edit prompts directly.
 - Prompts can be exported and imported as a single archive for sharing.

@@ -26,10 +26,22 @@ pub mod openai;
 pub mod sse;
 
 /// Inputs for a single rewrite call.
+///
+/// Instructions and content travel in separate channels: `system` carries
+/// the prompt body (what to do) and `user` carries the selected text (what
+/// to operate on). This separation is what makes the rewrite pipeline
+/// resistant to prompt injection — content embedded in `user` cannot be
+/// promoted to instruction status the way a single concatenated message
+/// can. PRD §5.5.
 #[derive(Debug, Clone)]
 pub struct RewriteRequest {
-    /// Fully-rendered prompt (template substitution already applied).
-    pub prompt: String,
+    /// The prompt's instruction body. Sent as the LLM's system message.
+    /// `None` is allowed for callers that have nothing to say (mock
+    /// provider tests); real providers will simply omit the system message.
+    pub system: Option<String>,
+    /// The user's selected text — the content to operate on. Sent as the
+    /// single user message. Never concatenated with `system`.
+    pub user: String,
     /// Optional model override. `None` means the provider's default.
     pub model: Option<String>,
 }

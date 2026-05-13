@@ -47,8 +47,10 @@ impl Provider for MockProvider {
         for tok in &self.tokens {
             on_event(RewriteEvent::Token { text: tok.clone() });
         }
+        let system_words = request.system.as_deref().map(count_words).unwrap_or(0);
+        let user_words = count_words(&request.user);
         on_event(RewriteEvent::Usage {
-            prompt_tokens: count_words(&request.prompt),
+            prompt_tokens: system_words + user_words,
             completion_tokens: self.tokens.iter().map(|t| count_words(t)).sum(),
         });
         on_event(RewriteEvent::Done);
