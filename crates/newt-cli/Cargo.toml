@@ -1,0 +1,18 @@
+[package]
+name = "newt-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "newt"
+path = "src/main.rs"
+
+[dependencies]
+newt-core.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
