@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod doctor;
+pub mod keychain;
 pub mod paths;
 pub mod prompt;
 pub mod provider;

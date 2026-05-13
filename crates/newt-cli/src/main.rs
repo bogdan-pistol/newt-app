@@ -1,11 +1,14 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::{ArgGroup, Args, Parser, Subcommand};
 use newt_core::{
     config::Config,
-    doctor,
+    doctor, keychain,
     paths::Paths,
     prompt,
-    provider::{Provider, RewriteEvent, mock::MockProvider},
+    provider::{
+        Provider, RewriteEvent, RewriteRequest, anthropic::AnthropicProvider, mock::MockProvider,
+        openai::OpenAiProvider,
+    },
     rewrite, simulate,
 };
 use serde_json::json;
@@ -50,6 +53,11 @@ enum Command {
     /// Inspect or write the replace buffer (the paste-back test target).
     /// With no `--text`, prints the current buffer. PRD §8.2.
     SimulateReplace(SimulateReplaceArgs),
+    /// Manage LLM provider keys and connectivity.
+    Providers {
+        #[command(subcommand)]
+        action: ProvidersAction,
+    },
 }
 
 #[derive(Args)]
@@ -100,6 +108,33 @@ enum ConfigAction {
     List,
 }
 
+#[derive(Subcommand)]
+enum ProvidersAction {
+    /// List known providers and whether each has a key in Keychain.
+    List,
+    /// Store an API key for a provider in macOS Keychain. Prompts hidden by
+    /// default; pass `--from-stdin` to read the key from stdin (for piping).
+    SetKey {
+        /// Provider name: `openai` or `anthropic`.
+        provider: String,
+        /// Read the key from stdin instead of prompting interactively.
+        #[arg(long)]
+        from_stdin: bool,
+    },
+    /// Print the stored key for a provider, masked unless `--reveal` is set.
+    GetKey {
+        provider: String,
+        /// Print the full key in clear text.
+        #[arg(long)]
+        reveal: bool,
+    },
+    /// Remove a provider's key from Keychain.
+    RemoveKey { provider: String },
+    /// Run a tiny live rewrite against a provider to verify connectivity.
+    /// Costs a fraction of a cent in tokens.
+    Test { provider: String },
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let paths = Paths::from_env()?;
@@ -123,6 +158,7 @@ fn main() -> Result<()> {
         Some(Command::Rewrite(args)) => run_rewrite(&paths, args, cli.json),
         Some(Command::SimulateSelection(args)) => run_simulate_selection(&paths, args, cli.json),
         Some(Command::SimulateReplace(args)) => run_simulate_replace(&paths, args, cli.json),
+        Some(Command::Providers { action }) => run_providers(action, cli.json),
     }
 }
 
@@ -329,6 +365,188 @@ fn read_selection(args: &RewriteArgs) -> Result<String> {
 fn build_provider(name: &str, selection: &str) -> Result<Box<dyn Provider>> {
     match name {
         "mock" => Ok(Box::new(MockProvider::echo(format!("[mock] {selection}")))),
-        other => bail!("unknown provider: `{other}` (Phase 1 supports: mock)"),
+        "openai" => {
+            let key = require_key("openai")?;
+            Ok(Box::new(OpenAiProvider::new(key)))
+        }
+        "anthropic" => {
+            let key = require_key("anthropic")?;
+            Ok(Box::new(AnthropicProvider::new(key)))
+        }
+        other => bail!("unknown provider: `{other}` (supported: mock, openai, anthropic)"),
     }
+}
+
+fn require_key(provider: &str) -> Result<String> {
+    keychain::get_key(provider)?.ok_or_else(|| {
+        anyhow!("no API key for `{provider}` in Keychain — run: newt providers set-key {provider}")
+    })
+}
+
+fn run_providers(action: ProvidersAction, json: bool) -> Result<()> {
+    match action {
+        ProvidersAction::List => providers_list(json),
+        ProvidersAction::SetKey {
+            provider,
+            from_stdin,
+        } => providers_set_key(&provider, from_stdin, json),
+        ProvidersAction::GetKey { provider, reveal } => providers_get_key(&provider, reveal, json),
+        ProvidersAction::RemoveKey { provider } => providers_remove_key(&provider, json),
+        ProvidersAction::Test { provider } => providers_test(&provider, json),
+    }
+}
+
+fn providers_list(json: bool) -> Result<()> {
+    // Stable order; mock first because it never needs a key.
+    let providers = [
+        ("mock", false, "deterministic test provider"),
+        ("openai", true, "OpenAI chat completions"),
+        ("anthropic", true, "Anthropic messages"),
+    ];
+
+    if json {
+        let mut entries = Vec::new();
+        for (name, needs_key, description) in providers {
+            let has_key = if needs_key {
+                keychain::get_key(name)?.is_some()
+            } else {
+                true
+            };
+            entries.push(json!({
+                "name": name,
+                "needs_key": needs_key,
+                "key_set": has_key,
+                "description": description,
+            }));
+        }
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+    } else {
+        for (name, needs_key, description) in providers {
+            let status = if !needs_key {
+                "n/a       "
+            } else if keychain::get_key(name)?.is_some() {
+                "✓ key set "
+            } else {
+                "  no key  "
+            };
+            println!("{name:<12} {status}  {description}");
+        }
+    }
+    Ok(())
+}
+
+fn providers_set_key(provider: &str, from_stdin: bool, json: bool) -> Result<()> {
+    require_supported_real_provider(provider)?;
+
+    let raw = if from_stdin {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("reading key from stdin")?;
+        buf
+    } else {
+        rpassword::prompt_password(format!("Enter API key for {provider}: "))
+            .context("reading key (interactive prompt)")?
+    };
+    let key = raw.trim();
+    if key.is_empty() {
+        bail!("empty key — nothing stored");
+    }
+    keychain::set_key(provider, key)?;
+
+    if json {
+        println!("{}", json!({ "provider": provider, "stored": true }));
+    } else {
+        println!("✓ stored key for {provider} in Keychain");
+    }
+    Ok(())
+}
+
+fn providers_get_key(provider: &str, reveal: bool, json: bool) -> Result<()> {
+    require_supported_real_provider(provider)?;
+    let key = keychain::get_key(provider)?.ok_or_else(|| anyhow!("no key set for `{provider}`"))?;
+
+    if json {
+        let value = if reveal {
+            json!(key)
+        } else {
+            json!(mask_key(&key))
+        };
+        println!(
+            "{}",
+            json!({ "provider": provider, "key": value, "revealed": reveal })
+        );
+    } else if reveal {
+        println!("{key}");
+    } else {
+        println!("{} (use --reveal to show full key)", mask_key(&key));
+    }
+    Ok(())
+}
+
+fn providers_remove_key(provider: &str, json: bool) -> Result<()> {
+    require_supported_real_provider(provider)?;
+    let removed = keychain::delete_key(provider)?;
+    if json {
+        println!("{}", json!({ "provider": provider, "removed": removed }));
+    } else if removed {
+        println!("✓ removed key for {provider}");
+    } else {
+        println!("(no key was set for {provider})");
+    }
+    Ok(())
+}
+
+fn providers_test(provider: &str, json: bool) -> Result<()> {
+    require_supported_real_provider(provider)?;
+    let key = require_key(provider)?;
+
+    let prov: Box<dyn Provider> = match provider {
+        "openai" => Box::new(OpenAiProvider::new(key)),
+        "anthropic" => Box::new(AnthropicProvider::new(key)),
+        _ => unreachable!("checked by require_supported_real_provider"),
+    };
+
+    let request = RewriteRequest {
+        prompt: "Reply with exactly the word 'ok' and nothing else.".to_string(),
+        model: None,
+    };
+    let mut got_token = false;
+    let mut got_done = false;
+    let mut total_chars = 0usize;
+    prov.rewrite(&request, &mut |event| match event {
+        RewriteEvent::Token { text } => {
+            got_token = true;
+            total_chars += text.len();
+        }
+        RewriteEvent::Done => got_done = true,
+        RewriteEvent::Usage { .. } => {}
+    })?;
+
+    if !(got_token && got_done) {
+        bail!("{provider}: missing expected events (token={got_token} done={got_done})");
+    }
+    if json {
+        println!(
+            "{}",
+            json!({ "provider": provider, "ok": true, "response_chars": total_chars })
+        );
+    } else {
+        println!("✓ {provider} OK ({total_chars} response chars)");
+    }
+    Ok(())
+}
+
+fn require_supported_real_provider(name: &str) -> Result<()> {
+    match name {
+        "openai" | "anthropic" => Ok(()),
+        other => bail!("providers commands operate on `openai` or `anthropic`; got `{other}`"),
+    }
+}
+
+fn mask_key(key: &str) -> String {
+    if key.len() <= 8 {
+        return "***".to_string();
+    }
+    format!("{}…{}", &key[..3], &key[key.len() - 4..])
 }
