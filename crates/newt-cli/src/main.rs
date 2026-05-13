@@ -1,7 +1,16 @@
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
-use newt_core::{config::Config, doctor, paths::Paths, prompt};
+use clap::{ArgGroup, Args, Parser, Subcommand};
+use newt_core::{
+    config::Config,
+    doctor,
+    paths::Paths,
+    prompt,
+    provider::{Provider, RewriteEvent, mock::MockProvider},
+    rewrite,
+    simulate,
+};
 use serde_json::json;
+use std::io::{Read, Write};
 
 /// Newt — system-wide AI text rewriter.
 #[derive(Parser)]
@@ -28,7 +37,50 @@ enum Command {
         action: ConfigAction,
     },
     /// Run health checks.
-    Doctor,
+    Doctor {
+        /// Include end-to-end checks against the mock provider (PRD §8.6).
+        #[arg(long)]
+        full: bool,
+    },
+    /// Run a rewrite against a provider, streaming the result.
+    Rewrite(RewriteArgs),
+    /// Simulate a selection capture and run the rewrite pipeline as if the
+    /// text had come from the OS clipboard. Writes the result to the replace
+    /// buffer (the Phase 1 stand-in for paste-back). PRD §8.2.
+    SimulateSelection(RewriteArgs),
+    /// Inspect or write the replace buffer (the paste-back test target).
+    /// With no `--text`, prints the current buffer. PRD §8.2.
+    SimulateReplace(SimulateReplaceArgs),
+}
+
+#[derive(Args)]
+#[command(group(
+    ArgGroup::new("input_src").required(true).args(["text", "input"])
+))]
+struct RewriteArgs {
+    /// Prompt id (filename stem under the prompts directory).
+    #[arg(short, long, value_name = "ID")]
+    prompt: String,
+
+    /// Inline text to rewrite. Mutually exclusive with --input.
+    #[arg(long)]
+    text: Option<String>,
+
+    /// Read selection from a file. Use `-` for stdin. Mutually exclusive with --text.
+    #[arg(short, long, value_name = "PATH")]
+    input: Option<String>,
+
+    /// Provider to use. Phase 1 only ships the deterministic mock.
+    #[arg(long, default_value = "mock")]
+    provider: String,
+}
+
+#[derive(Args)]
+struct SimulateReplaceArgs {
+    /// Text to write to the replace buffer. If omitted, the current buffer
+    /// contents are printed without modification.
+    #[arg(long)]
+    text: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -52,6 +104,9 @@ enum ConfigAction {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let paths = Paths::from_env()?;
+    // Idempotent: seeds defaults on first run, no-op on subsequent invocations.
+    // Centralizing this here means every subcommand sees a consistent prompts dir.
+    prompt::seed_defaults_if_empty(&paths)?;
 
     match cli.command {
         None => {
@@ -65,15 +120,16 @@ fn main() -> Result<()> {
         }
         Some(Command::Prompts { action }) => run_prompts(&paths, action, cli.json),
         Some(Command::Config { action }) => run_config(&paths, action, cli.json),
-        Some(Command::Doctor) => run_doctor(&paths, cli.json),
+        Some(Command::Doctor { full }) => run_doctor(&paths, full, cli.json),
+        Some(Command::Rewrite(args)) => run_rewrite(&paths, args, cli.json),
+        Some(Command::SimulateSelection(args)) => run_simulate_selection(&paths, args, cli.json),
+        Some(Command::SimulateReplace(args)) => run_simulate_replace(&paths, args, cli.json),
     }
 }
 
 fn run_prompts(paths: &Paths, action: PromptsAction, json: bool) -> Result<()> {
     match action {
         PromptsAction::List => {
-            // Seed defaults on first use so a fresh install has something to show.
-            prompt::seed_defaults_if_empty(paths)?;
             let prompts = prompt::list(paths)?;
 
             if json {
@@ -153,8 +209,12 @@ fn run_config(paths: &Paths, action: ConfigAction, json: bool) -> Result<()> {
     }
 }
 
-fn run_doctor(paths: &Paths, json: bool) -> Result<()> {
-    let report = doctor::run(paths).context("running health checks")?;
+fn run_doctor(paths: &Paths, full: bool, json: bool) -> Result<()> {
+    let report = if full {
+        doctor::run_full(paths).context("running full health checks")?
+    } else {
+        doctor::run(paths).context("running health checks")?
+    };
 
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -173,4 +233,100 @@ fn run_doctor(paths: &Paths, json: bool) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+fn run_rewrite(paths: &Paths, args: RewriteArgs, json: bool) -> Result<()> {
+    let selection = read_selection(&args)?;
+    let provider = build_provider(&args.provider, &selection)?;
+
+    stream_pipeline(json, |emit| {
+        rewrite::run(paths, &args.prompt, &selection, provider.as_ref(), emit)
+    })
+}
+
+fn run_simulate_selection(paths: &Paths, args: RewriteArgs, json: bool) -> Result<()> {
+    let selection = read_selection(&args)?;
+    let provider = build_provider(&args.provider, &selection)?;
+
+    stream_pipeline(json, |emit| {
+        // simulate::selection returns the concatenated text; we discard it
+        // here because the test harness reads the replace buffer instead.
+        simulate::selection(paths, &args.prompt, &selection, provider.as_ref(), emit).map(|_| ())
+    })
+}
+
+fn run_simulate_replace(paths: &Paths, args: SimulateReplaceArgs, json: bool) -> Result<()> {
+    if let Some(text) = &args.text {
+        simulate::write_replace_buffer(paths, text)?;
+    }
+    let buffer = simulate::read_replace_buffer(paths)?;
+    if json {
+        println!("{}", json!({ "buffer": buffer }));
+    } else {
+        print!("{buffer}");
+        if !buffer.ends_with('\n') {
+            println!();
+        }
+    }
+    Ok(())
+}
+
+/// Run a streaming pipeline (`rewrite::run`, `simulate::selection`, …) and
+/// render its events. In `--json` mode every event is one NDJSON line; in
+/// human mode only `Token` events print, joined into a stream of text with
+/// a single trailing newline.
+fn stream_pipeline<F>(json: bool, run: F) -> Result<()>
+where
+    F: FnOnce(&mut dyn FnMut(RewriteEvent)) -> Result<()>,
+{
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let mut wrote_token = false;
+
+    let result = run(&mut |event| {
+        if json {
+            let _ = serde_json::to_writer(&mut out, &event);
+            let _ = writeln!(out);
+        } else if let RewriteEvent::Token { text } = &event {
+            let _ = write!(out, "{text}");
+            let _ = out.flush();
+            wrote_token = true;
+        }
+    });
+
+    if !json && wrote_token {
+        let _ = writeln!(out);
+    }
+
+    if let Err(e) = result {
+        if json {
+            let payload = json!({ "type": "error", "message": format!("{e:#}") });
+            let _ = serde_json::to_writer(&mut out, &payload);
+            let _ = writeln!(out);
+        }
+        return Err(e);
+    }
+    Ok(())
+}
+
+fn read_selection(args: &RewriteArgs) -> Result<String> {
+    if let Some(text) = &args.text {
+        return Ok(text.clone());
+    }
+    let path = args.input.as_deref().expect("clap group enforces one of text/input");
+    if path == "-" {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("reading stdin")?;
+        return Ok(buf);
+    }
+    std::fs::read_to_string(path).with_context(|| format!("reading {path}"))
+}
+
+fn build_provider(name: &str, selection: &str) -> Result<Box<dyn Provider>> {
+    match name {
+        "mock" => Ok(Box::new(MockProvider::echo(format!("[mock] {selection}")))),
+        other => bail!("unknown provider: `{other}` (Phase 1 supports: mock)"),
+    }
 }
