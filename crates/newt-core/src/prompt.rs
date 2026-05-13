@@ -127,6 +127,24 @@ pub fn list(paths: &Paths) -> Result<Vec<Prompt>> {
     Ok(out)
 }
 
+/// Load a single prompt by id (filename stem). Looks on disk first; falls
+/// back to the bundled default with the matching id if no on-disk file
+/// exists. Returns an error only if `id` is unknown to both sources.
+pub fn load(paths: &Paths, id: &str) -> Result<Prompt> {
+    let on_disk = paths.prompts_dir().join(format!("{id}.md"));
+    if on_disk.exists() {
+        let contents = std::fs::read_to_string(&on_disk)
+            .with_context(|| format!("reading {}", on_disk.display()))?;
+        return parse(id, &contents);
+    }
+    for (filename, contents) in DEFAULT_PROMPTS {
+        if filename.trim_end_matches(".md") == id {
+            return parse(id, contents);
+        }
+    }
+    Err(anyhow!("no prompt with id `{id}` (not on disk, not a default)"))
+}
+
 /// Write the bundled default prompts into the prompts directory if and only if
 /// it's empty. Idempotent: re-running has no effect on a populated directory.
 pub fn seed_defaults_if_empty(paths: &Paths) -> Result<usize> {
