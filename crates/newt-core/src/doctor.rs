@@ -45,12 +45,12 @@ impl Report {
 /// Run every Phase 0 check and collect results. Never errors — failures are
 /// reported as `Status::Fail` so the report itself is always renderable.
 pub fn run(paths: &Paths) -> Result<Report> {
-    let mut checks = Vec::new();
-
-    checks.push(check_home_dir(paths));
-    checks.push(check_prompts_dir(paths));
-    checks.push(check_prompts_parse(paths));
-    checks.push(check_config_parse(paths));
+    let checks = vec![
+        check_home_dir(paths),
+        check_prompts_dir(paths),
+        check_prompts_parse(paths),
+        check_config_parse(paths),
+    ];
 
     Ok(Report { checks })
 }
@@ -103,7 +103,9 @@ fn check_prompts_parse(paths: &Paths) -> Check {
         Ok(prompts) if prompts.is_empty() => Check {
             name: "prompts loadable",
             status: Status::Fail,
-            message: "no prompts found (the CLI seeds defaults on every run; this should be impossible)".into(),
+            message:
+                "no prompts found (the CLI seeds defaults on every run; this should be impossible)"
+                    .into(),
         },
         Ok(prompts) => Check {
             name: "prompts loadable",
@@ -128,7 +130,7 @@ fn check_config_parse(paths: &Paths) -> Check {
                 message: if paths.config_file().exists() {
                     format!("{} ({} key(s))", paths.config_file().display(), n)
                 } else {
-                    format!("not present (defaults in use)")
+                    "not present (defaults in use)".to_string()
                 },
             }
         }
@@ -147,17 +149,11 @@ fn check_mock_rewrite_pipeline(paths: &Paths) -> Check {
     let provider = MockProvider::echo(format!("[mock] {canary}"));
     let mut streamed = String::new();
 
-    let result = simulate::selection(
-        paths,
-        "improve-writing",
-        canary,
-        &provider,
-        &mut |event| {
-            if let RewriteEvent::Token { text } = event {
-                streamed.push_str(&text);
-            }
-        },
-    );
+    let result = simulate::selection(paths, "improve-writing", canary, &provider, &mut |event| {
+        if let RewriteEvent::Token { text } = event {
+            streamed.push_str(&text);
+        }
+    });
 
     match result {
         Err(e) => Check {

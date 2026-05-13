@@ -26,11 +26,20 @@ fn pipeline_renders_template_and_streams_mock_events() {
     .expect("pipeline runs against bundled default prompt");
 
     // Tokens come through verbatim.
-    assert_eq!(events[0], RewriteEvent::Token { text: "[mock]".into() });
+    assert_eq!(
+        events[0],
+        RewriteEvent::Token {
+            text: "[mock]".into()
+        }
+    );
     assert_eq!(events[1], RewriteEvent::Token { text: " ok".into() });
 
     // Usage and Done come last, in order.
-    let RewriteEvent::Usage { prompt_tokens, completion_tokens } = events[2] else {
+    let RewriteEvent::Usage {
+        prompt_tokens,
+        completion_tokens,
+    } = events[2]
+    else {
         panic!("expected Usage event, got {:?}", events[2]);
     };
     assert!(prompt_tokens > 0, "rendered prompt should be non-empty");
@@ -44,13 +53,9 @@ fn unknown_prompt_id_is_a_clean_error() {
     let paths = Paths::with_home(&tmp);
     let provider = MockProvider::echo("ignored");
 
-    let err = rewrite::run(
-        &paths,
-        "no-such-prompt",
-        "x",
-        &provider,
-        &mut |_| panic!("provider should not be invoked when prompt is missing"),
-    )
+    let err = rewrite::run(&paths, "no-such-prompt", "x", &provider, &mut |_| {
+        panic!("provider should not be invoked when prompt is missing")
+    })
     .expect_err("unknown prompt id should error");
 
     assert!(

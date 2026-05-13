@@ -26,17 +26,14 @@ impl Config {
         }
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text)
-            .with_context(|| format!("parsing {}", path.display()))
+        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
     }
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
         paths.ensure_dirs()?;
         let path = paths.config_file();
-        let text = toml::to_string_pretty(self)
-            .context("serializing config")?;
-        std::fs::write(&path, text)
-            .with_context(|| format!("writing {}", path.display()))?;
+        let text = toml::to_string_pretty(self).context("serializing config")?;
+        std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
 

@@ -6,8 +6,7 @@ use newt_core::{
     paths::Paths,
     prompt,
     provider::{Provider, RewriteEvent, mock::MockProvider},
-    rewrite,
-    simulate,
+    rewrite, simulate,
 };
 use serde_json::json;
 use std::io::{Read, Write};
@@ -313,7 +312,10 @@ fn read_selection(args: &RewriteArgs) -> Result<String> {
     if let Some(text) = &args.text {
         return Ok(text.clone());
     }
-    let path = args.input.as_deref().expect("clap group enforces one of text/input");
+    let path = args
+        .input
+        .as_deref()
+        .expect("clap group enforces one of text/input");
     if path == "-" {
         let mut buf = String::new();
         std::io::stdin()

@@ -26,14 +26,38 @@ use crate::paths::Paths;
 /// We list them explicitly rather than walking the directory so we don't pull
 /// in `include_dir` and so the embedded set is auditable at a glance.
 pub const DEFAULT_PROMPTS: &[(&str, &str)] = &[
-    ("improve-writing.md", include_str!("defaults/prompts/improve-writing.md")),
-    ("fix-grammar.md", include_str!("defaults/prompts/fix-grammar.md")),
-    ("make-concise.md", include_str!("defaults/prompts/make-concise.md")),
-    ("make-formal.md", include_str!("defaults/prompts/make-formal.md")),
-    ("make-casual.md", include_str!("defaults/prompts/make-casual.md")),
-    ("summarize.md", include_str!("defaults/prompts/summarize.md")),
-    ("bullet-points.md", include_str!("defaults/prompts/bullet-points.md")),
-    ("translate-en.md", include_str!("defaults/prompts/translate-en.md")),
+    (
+        "improve-writing.md",
+        include_str!("defaults/prompts/improve-writing.md"),
+    ),
+    (
+        "fix-grammar.md",
+        include_str!("defaults/prompts/fix-grammar.md"),
+    ),
+    (
+        "make-concise.md",
+        include_str!("defaults/prompts/make-concise.md"),
+    ),
+    (
+        "make-formal.md",
+        include_str!("defaults/prompts/make-formal.md"),
+    ),
+    (
+        "make-casual.md",
+        include_str!("defaults/prompts/make-casual.md"),
+    ),
+    (
+        "summarize.md",
+        include_str!("defaults/prompts/summarize.md"),
+    ),
+    (
+        "bullet-points.md",
+        include_str!("defaults/prompts/bullet-points.md"),
+    ),
+    (
+        "translate-en.md",
+        include_str!("defaults/prompts/translate-en.md"),
+    ),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -63,7 +87,9 @@ pub struct Prompt {
 /// Format: starts with `---\n`, frontmatter, then `\n---\n` (or `\n---` at EOF),
 /// then the body. Trailing whitespace on the closing fence is tolerated.
 fn split_frontmatter(input: &str) -> Result<(&str, &str)> {
-    let s = input.strip_prefix("---\n").or_else(|| input.strip_prefix("---\r\n"))
+    let s = input
+        .strip_prefix("---\n")
+        .or_else(|| input.strip_prefix("---\r\n"))
         .ok_or_else(|| anyhow!("missing opening `---` frontmatter fence"))?;
 
     // Find the closing fence: a line that is exactly `---` (allowing CR).
@@ -73,7 +99,11 @@ fn split_frontmatter(input: &str) -> Result<(&str, &str)> {
         if trimmed == "---" {
             let yaml = &s[..start];
             let body_start = start + line.len();
-            let body = if body_start <= s.len() { &s[body_start..] } else { "" };
+            let body = if body_start <= s.len() {
+                &s[body_start..]
+            } else {
+                ""
+            };
             return Ok((yaml, body));
         }
         start += line.len();
@@ -83,8 +113,8 @@ fn split_frontmatter(input: &str) -> Result<(&str, &str)> {
 
 /// Parse a single prompt file's contents. `id` is the filename without `.md`.
 pub fn parse(id: &str, contents: &str) -> Result<Prompt> {
-    let (yaml, body) = split_frontmatter(contents)
-        .with_context(|| format!("parsing prompt `{id}`"))?;
+    let (yaml, body) =
+        split_frontmatter(contents).with_context(|| format!("parsing prompt `{id}`"))?;
 
     let fm: PromptFrontmatter = serde_yml::from_str(yaml)
         .with_context(|| format!("parsing frontmatter of prompt `{id}`"))?;
@@ -108,22 +138,22 @@ pub fn list(paths: &Paths) -> Result<Vec<Prompt>> {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in std::fs::read_dir(&dir)
-        .with_context(|| format!("reading {}", dir.display()))?
-    {
+    for entry in std::fs::read_dir(&dir).with_context(|| format!("reading {}", dir.display()))? {
         let entry = entry?;
         let path = entry.path();
         if path.extension().and_then(|s| s.to_str()) != Some("md") {
             continue;
         }
-        let id = path.file_stem().and_then(|s| s.to_str())
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
             .ok_or_else(|| anyhow!("invalid prompt filename: {}", path.display()))?
             .to_string();
         let contents = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
         out.push(parse(&id, &contents)?);
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|a| a.name.to_lowercase());
     Ok(out)
 }
 
@@ -142,7 +172,9 @@ pub fn load(paths: &Paths, id: &str) -> Result<Prompt> {
             return parse(id, contents);
         }
     }
-    Err(anyhow!("no prompt with id `{id}` (not on disk, not a default)"))
+    Err(anyhow!(
+        "no prompt with id `{id}` (not on disk, not a default)"
+    ))
 }
 
 /// Write the bundled default prompts into the prompts directory if and only if

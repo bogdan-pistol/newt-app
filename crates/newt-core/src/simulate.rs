@@ -31,8 +31,7 @@ pub fn read_replace_buffer(paths: &Paths) -> Result<String> {
     if !path.exists() {
         return Ok(String::new());
     }
-    std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))
+    std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
 }
 
 /// Write `text` to the replace buffer, creating the directory if needed.
@@ -42,8 +41,7 @@ pub fn write_replace_buffer(paths: &Paths, text: &str) -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    std::fs::write(&path, text)
-        .with_context(|| format!("writing {}", path.display()))?;
+    std::fs::write(&path, text).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
