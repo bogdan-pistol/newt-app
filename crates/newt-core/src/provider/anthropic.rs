@@ -71,12 +71,17 @@ impl Provider for AnthropicProvider {
         on_event: &mut dyn FnMut(RewriteEvent),
     ) -> Result<()> {
         let model = request.model.as_deref().unwrap_or(&self.default_model);
-        let body = json!({
+        let mut body = json!({
             "model": model,
             "max_tokens": MAX_TOKENS,
             "stream": true,
-            "messages": [{ "role": "user", "content": request.prompt }],
+            "messages": [{ "role": "user", "content": request.user }],
         });
+        if let Some(sys) = &request.system
+            && !sys.is_empty()
+        {
+            body["system"] = json!(sys);
+        }
 
         let response = ureq::post(ENDPOINT)
             .set("x-api-key", &self.api_key)

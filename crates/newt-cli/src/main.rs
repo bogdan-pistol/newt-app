@@ -508,7 +508,8 @@ fn providers_test(provider: &str, json: bool) -> Result<()> {
     };
 
     let request = RewriteRequest {
-        prompt: "Reply with exactly the word 'ok' and nothing else.".to_string(),
+        system: Some("Respond with exactly the word 'ok' and nothing else.".to_string()),
+        user: "ping".to_string(),
         model: None,
     };
     let mut got_token = false;

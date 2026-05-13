@@ -11,7 +11,6 @@ pub mod prompt;
 pub mod provider;
 pub mod rewrite;
 pub mod simulate;
-pub mod template;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -3,9 +3,14 @@
 
 use newt_core::provider::{Provider, RewriteEvent, RewriteRequest, mock::MockProvider};
 
-fn collect(provider: &dyn Provider, prompt: &str) -> Vec<RewriteEvent> {
+fn collect(provider: &dyn Provider, system: &str, user: &str) -> Vec<RewriteEvent> {
     let req = RewriteRequest {
-        prompt: prompt.to_string(),
+        system: if system.is_empty() {
+            None
+        } else {
+            Some(system.to_string())
+        },
+        user: user.to_string(),
         model: None,
     };
     let mut events = Vec::new();
@@ -17,7 +22,7 @@ fn collect(provider: &dyn Provider, prompt: &str) -> Vec<RewriteEvent> {
 
 #[test]
 fn echo_splits_input_into_whitespace_prefixed_tokens() {
-    let events = collect(&MockProvider::echo("hello world"), "any prompt");
+    let events = collect(&MockProvider::echo("hello world"), "any prompt", "");
 
     assert_eq!(
         events,
@@ -42,6 +47,7 @@ fn tokens_emits_scripted_sequence_verbatim() {
     let events = collect(
         &MockProvider::tokens(vec!["foo".into(), "-bar".into(), "!".into()]),
         "two words",
+        "",
     );
 
     let expected = vec![
@@ -61,7 +67,7 @@ fn tokens_emits_scripted_sequence_verbatim() {
 
 #[test]
 fn empty_input_yields_no_tokens_but_still_emits_usage_and_done() {
-    let events = collect(&MockProvider::echo(""), "");
+    let events = collect(&MockProvider::echo(""), "", "");
 
     assert_eq!(
         events,

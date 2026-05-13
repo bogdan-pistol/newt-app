@@ -11,7 +11,8 @@ use newt_core::provider::{
 
 fn tiny_request() -> RewriteRequest {
     RewriteRequest {
-        prompt: "Reply with exactly the word 'ok' and nothing else.".to_string(),
+        system: Some("Respond with exactly the word 'ok' and nothing else.".to_string()),
+        user: "ping".to_string(),
         model: None,
     }
 }

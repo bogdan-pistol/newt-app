@@ -9,7 +9,9 @@
 //! description: ...
 //! model: anthropic/claude-sonnet-4-6   # optional
 //! ---
-//! Body of the prompt template, with {{selection}} as the placeholder.
+//! Body of pure instructions: what to do with the user's selected text.
+//! Do not embed the selection here — it is sent automatically as a
+//! separate user message. See `provider::RewriteRequest`.
 //! ```
 //!
 //! The eight default prompts are embedded in the binary at compile time and
@@ -79,7 +81,10 @@ pub struct Prompt {
     pub description: String,
     pub emoji: Option<String>,
     pub model: Option<String>,
-    pub template: String,
+    /// The prompt's instruction body, sent verbatim as the LLM's system
+    /// message. The user's selection is sent as a separate user message and
+    /// is **not** interpolated into this string — see `RewriteRequest`.
+    pub instructions: String,
 }
 
 /// Split a frontmatter document into (yaml, body).
@@ -125,7 +130,7 @@ pub fn parse(id: &str, contents: &str) -> Result<Prompt> {
         description: fm.description,
         emoji: fm.emoji,
         model: fm.model,
-        template: body.trim_start_matches('\n').to_string(),
+        instructions: body.trim_matches('\n').to_string(),
     })
 }
 
