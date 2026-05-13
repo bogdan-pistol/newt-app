@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["crates/newt-core", "crates/newt-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+authors = ["Bogdan Pistol"]
+repository = "https://github.com/bpistol/newt-app"
+
+[workspace.dependencies]
+newt-core = { path = "crates/newt-core" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.12"
+toml = "0.8"
+anyhow = "1"
+insta = { version = "1", features = ["yaml"] }
