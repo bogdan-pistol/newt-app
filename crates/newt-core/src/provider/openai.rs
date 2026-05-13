@@ -22,9 +22,9 @@ use serde_json::json;
 
 use super::{Provider, RewriteEvent, RewriteRequest, sse};
 
-/// Default OpenAI model — cheap, fast, suitable for rewriting. Override per
-/// prompt via the `model:` frontmatter or per-provider via config.
-pub const DEFAULT_MODEL: &str = "gpt-4o-mini";
+/// Default OpenAI model — current cost/capability sweet spot for rewriting.
+/// Override per prompt via the `model:` frontmatter.
+pub const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 
 const ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
 
