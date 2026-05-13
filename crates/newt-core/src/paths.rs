@@ -19,7 +19,9 @@ impl Paths {
     /// Resolve paths from the environment. Honours `NEWT_HOME` if set.
     pub fn from_env() -> Result<Self> {
         if let Ok(p) = std::env::var("NEWT_HOME") {
-            return Ok(Self { home: PathBuf::from(p) });
+            return Ok(Self {
+                home: PathBuf::from(p),
+            });
         }
         let home = std::env::var("HOME").context("HOME environment variable not set")?;
         Ok(Self {
@@ -29,7 +31,9 @@ impl Paths {
 
     /// Force a specific home (for tests).
     pub fn with_home(home: impl AsRef<Path>) -> Self {
-        Self { home: home.as_ref().to_path_buf() }
+        Self {
+            home: home.as_ref().to_path_buf(),
+        }
     }
 
     pub fn prompts_dir(&self) -> PathBuf {

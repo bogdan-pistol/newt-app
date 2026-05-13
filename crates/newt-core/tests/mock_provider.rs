@@ -22,8 +22,12 @@ fn echo_splits_input_into_whitespace_prefixed_tokens() {
     assert_eq!(
         events,
         vec![
-            RewriteEvent::Token { text: "hello".into() },
-            RewriteEvent::Token { text: " world".into() },
+            RewriteEvent::Token {
+                text: "hello".into()
+            },
+            RewriteEvent::Token {
+                text: " world".into()
+            },
             RewriteEvent::Usage {
                 prompt_tokens: 2,
                 completion_tokens: 2,
@@ -42,7 +46,9 @@ fn tokens_emits_scripted_sequence_verbatim() {
 
     let expected = vec![
         RewriteEvent::Token { text: "foo".into() },
-        RewriteEvent::Token { text: "-bar".into() },
+        RewriteEvent::Token {
+            text: "-bar".into(),
+        },
         RewriteEvent::Token { text: "!".into() },
         RewriteEvent::Usage {
             prompt_tokens: 2,
