@@ -20,7 +20,10 @@
 use anyhow::Result;
 use serde::Serialize;
 
+pub mod anthropic;
 pub mod mock;
+pub mod openai;
+pub mod sse;
 
 /// Inputs for a single rewrite call.
 #[derive(Debug, Clone)]

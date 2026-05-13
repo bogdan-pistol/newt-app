@@ -12,6 +12,8 @@ serde_json.workspace = true
 serde_yml.workspace = true
 toml.workspace = true
 anyhow.workspace = true
+ureq.workspace = true
+security-framework.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
