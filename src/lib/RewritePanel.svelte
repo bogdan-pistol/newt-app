@@ -1,6 +1,6 @@
 <script lang="ts">
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { api } from "./api";
   import type { Prompt, ProviderStatus, RewriteEvent } from "./types";
 
@@ -21,6 +21,15 @@
   let status = $state<"idle" | "streaming" | "done" | "error">("idle");
   let errorMessage = $state<string | null>(null);
   let copied = $state(false);
+  let replaced = $state(false);
+  /**
+   * True when the current selection came in via the global hotkey's
+   * capture flow (not manual paste / clipboard read). Replace is only
+   * meaningful in that case — there's no source app to paste back to
+   * otherwise.
+   */
+  let capturedFromSource = $state(false);
+  let unlistenSelection: (() => void) | null = null;
 
   // Pre-select a sensible default once we have data.
   $effect(() => {
@@ -41,6 +50,8 @@
     try {
       const text = await readText();
       selection = text ?? "";
+      // Manual clipboard read — there's no source app to paste back to.
+      capturedFromSource = false;
     } catch (e) {
       errorMessage = `Couldn't read clipboard: ${e}`;
     }
@@ -108,9 +119,41 @@
     }
   }
 
+  async function replaceInSourceApp() {
+    if (!output) return;
+    try {
+      await api.replaceSelection(output);
+      replaced = true;
+      setTimeout(() => (replaced = false), 1500);
+    } catch (e) {
+      errorMessage = `Replace failed: ${e}`;
+    }
+  }
+
   // Auto-read clipboard once on mount so the panel is immediately useful.
-  onMount(() => {
+  onMount(async () => {
     readClipboard();
+
+    // Listen for hotkey-captured selections. When the backend successfully
+    // grabs text via the ⌘C trick it emits this event with the captured
+    // text; we prefill the input and auto-run the rewrite. Errors (e.g.
+    // missing Accessibility permission, though that case is normally
+    // gated upstream by the Onboarding screen) surface inline.
+    unlistenSelection = await api.onSelectionCaptured((payload) => {
+      if (payload.error) {
+        errorMessage = payload.error;
+        return;
+      }
+      if (payload.text && payload.text.trim()) {
+        selection = payload.text;
+        capturedFromSource = true;
+        rewrite();
+      }
+    });
+  });
+
+  onDestroy(() => {
+    unlistenSelection?.();
   });
 </script>
 
@@ -172,6 +215,15 @@
         <button onclick={copyOutput} disabled={!output} class="secondary tight">
           {copied ? "✓ Copied" : "Copy"}
         </button>
+        {#if capturedFromSource}
+          <button
+            onclick={replaceInSourceApp}
+            disabled={!output || status === "streaming"}
+            class="primary tight"
+          >
+            {replaced ? "✓ Replaced" : "Replace"}
+          </button>
+        {/if}
       </div>
       <pre>{output}{status === "streaming" ? "▍" : ""}</pre>
     </div>
@@ -232,6 +284,7 @@
     padding: 0.5rem 0.85rem;
     background: rgba(0, 0, 0, 0.03);
     font-size: 0.82rem;
+    gap: 0.4rem;
   }
   @media (prefers-color-scheme: dark) {
     .output-header {

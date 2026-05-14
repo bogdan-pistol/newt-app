@@ -35,3 +35,18 @@ export type RewriteEvent =
   | { type: "usage"; prompt_tokens: number; completion_tokens: number }
   | { type: "done" }
   | { type: "error"; message: string };
+
+export type AccessibilityStatus = {
+  granted: boolean;
+};
+
+/**
+ * Payload for the `rewrite:selection` event the hotkey handler emits
+ * after attempting selection capture. `text` is the captured text on
+ * success; otherwise `text` is null and `error` carries the reason
+ * (typically "Accessibility permission required" on first run).
+ */
+export type SelectionPayload = {
+  text: string | null;
+  error: string | null;
+};

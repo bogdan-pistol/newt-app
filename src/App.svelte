@@ -5,11 +5,13 @@
   import RewritePanel from "./lib/RewritePanel.svelte";
   import ProvidersSection from "./lib/ProvidersSection.svelte";
   import PromptsSection from "./lib/PromptsSection.svelte";
+  import Onboarding from "./lib/Onboarding.svelte";
 
   let prompts = $state<Prompt[]>([]);
   let providers = $state<ProviderStatus[]>([]);
   let error = $state<string | null>(null);
   let loaded = $state(false);
+  let accessibilityGranted = $state<boolean | null>(null);
   let rewritePanel = $state<{
     rewriteFromClipboard: () => Promise<void>;
   } | null>(null);
@@ -30,6 +32,16 @@
   let unlistenTray: (() => void) | null = null;
 
   onMount(async () => {
+    // Check Accessibility first — if not granted we render only the
+    // Onboarding component, since selection-capture and Replace can't
+    // function without it.
+    try {
+      const status = await api.accessibilityStatus();
+      accessibilityGranted = status.granted;
+    } catch {
+      accessibilityGranted = false;
+    }
+
     await refresh();
     unlistenTray = await api.onClipboardTrigger(() => {
       rewritePanel?.rewriteFromClipboard();
@@ -53,7 +65,11 @@
     </div>
   {/if}
 
-  {#if !loaded && !error}
+  {#if accessibilityGranted === null}
+    <div class="muted">Loading…</div>
+  {:else if !accessibilityGranted}
+    <Onboarding onGranted={() => (accessibilityGranted = true)} />
+  {:else if !loaded && !error}
     <div class="muted">Loading…</div>
   {:else}
     <RewritePanel bind:this={rewritePanel} {prompts} {providers} />

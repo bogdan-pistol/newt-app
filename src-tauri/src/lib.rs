@@ -10,7 +10,9 @@
 //! returns immediately, so the JS side gets a real stream without blocking
 //! the IPC channel.
 
+use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 use newt_core::{
     keychain,
@@ -24,11 +26,24 @@ use newt_core::{
 };
 use serde::Serialize;
 use tauri::{
-    AppHandle, Emitter, Manager, WindowEvent,
+    AppHandle, Emitter, Manager, State, WindowEvent,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+#[cfg(target_os = "macos")]
+mod macos;
+
+/// Cross-thread state for the capture/replace round-trip. The hotkey
+/// handler stashes the source app's PID before stealing focus; the
+/// `replace_selection` command pulls it back to re-focus that app before
+/// pasting.
+#[derive(Default)]
+struct CaptureState {
+    source_pid: Mutex<Option<i32>>,
+}
 
 /// Provider summary for the settings UI. Mirrors the shape of `newt
 /// providers list --json` so the CLI and GUI stay aligned.
@@ -254,6 +269,138 @@ fn build_real_provider(name: &str) -> Result<Box<dyn Provider>, String> {
     })
 }
 
+// ────────────────────────────────────── selection capture & replace ─────────
+
+/// Payload for the `rewrite:selection` event the hotkey handler emits
+/// after attempting selection capture. `text = Some(...)` means capture
+/// succeeded; `text = None` plus an `error` means it failed (typically
+/// "Accessibility permission required" on first run).
+#[derive(Clone, Serialize)]
+struct SelectionPayload {
+    text: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct AccessibilityStatus {
+    granted: bool,
+}
+
+#[tauri::command]
+fn accessibility_status() -> AccessibilityStatus {
+    AccessibilityStatus {
+        granted: accessibility_granted(),
+    }
+}
+
+#[tauri::command]
+fn open_accessibility_settings() -> Result<(), String> {
+    // Trigger macOS's permission prompt first — the *first* call registers
+    // Newt in System Settings → Privacy & Security → Accessibility and
+    // shows the native "App would like to control this computer" dialog.
+    // Subsequent calls are silent. We then `open` System Settings as a
+    // fallback in case the user dismissed the dialog without granting.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = macos::request_accessibility_and_check();
+    }
+    open_ax_settings_panel().map_err(|e| format!("{e:#}"))
+}
+
+/// Replace the user's original selection by re-focusing the source app
+/// and synthesising ⌘V with `text` on the clipboard. Restores the prior
+/// clipboard contents afterwards. Returns `Err` if Accessibility isn't
+/// granted, the source app PID isn't known, or any step fails.
+#[tauri::command]
+fn replace_selection(
+    app: AppHandle,
+    state: State<'_, CaptureState>,
+    text: String,
+) -> Result<(), String> {
+    if !accessibility_granted() {
+        return Err("Accessibility permission required to paste back".into());
+    }
+    let pid = state
+        .source_pid
+        .lock()
+        .map_err(|e| format!("state poisoned: {e}"))?
+        .ok_or_else(|| "no source app recorded — capture a selection first".to_string())?;
+
+    // Save the user's current clipboard so we can restore it after the paste.
+    // If reading fails (non-text contents), the paste will inevitably clobber
+    // the clipboard — that's an unavoidable limitation of the ⌘V trick.
+    let prior_clipboard = app.clipboard().read_text().ok();
+
+    app.clipboard()
+        .write_text(text)
+        .map_err(|e| format!("setting clipboard: {e}"))?;
+
+    if !activate_app(pid) {
+        return Err(format!("could not re-activate source app (pid={pid})"));
+    }
+    // Give the OS a moment to actually shift focus before we send ⌘V.
+    std::thread::sleep(Duration::from_millis(80));
+
+    simulate_paste().map_err(|e| format!("simulating ⌘V: {e}"))?;
+
+    // Let the paste land before we restore.
+    std::thread::sleep(Duration::from_millis(120));
+
+    if let Some(prior) = prior_clipboard {
+        let _ = app.clipboard().write_text(prior);
+    }
+    Ok(())
+}
+
+// Tiny helpers that route to the macOS-specific implementation when
+// available, returning sensible fallbacks otherwise. Keeps the command
+// bodies readable and lets non-macOS builds still compile cleanly.
+
+fn accessibility_granted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::is_accessibility_granted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+fn open_ax_settings_panel() -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::open_accessibility_settings()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(())
+    }
+}
+
+fn activate_app(pid: i32) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::activate_app_by_pid(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+fn simulate_paste() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::simulate_cmd_v()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("paste-back is macOS-only".into())
+    }
+}
+
 // ────────────────────────────────────── app entry ────────────────────────────
 
 /// Default global hotkey — ⌘+; (Cmd + Semicolon). PRD §5.1, §10.
@@ -291,8 +438,13 @@ pub fn run() {
             remove_provider_key,
             test_provider,
             run_rewrite,
+            accessibility_status,
+            open_accessibility_settings,
+            replace_selection,
         ])
         .setup(|app| {
+            app.manage(CaptureState::default());
+
             // Seed defaults at startup so the UI always sees a populated
             // prompts dir, mirroring what `newt-cli`'s `main()` does.
             if let Ok(p) = Paths::from_env() {
@@ -351,11 +503,96 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Hotkey handler: bring window forward and trigger a clipboard rewrite,
-/// matching the tray menu's "Rewrite Clipboard…" UX. The frontend reads
-/// the current clipboard and runs the pipeline.
+/// Hotkey handler: capture the current selection (the ⌘C trick from
+/// PRD §5.2), bring Newt's window forward, and emit `rewrite:selection`
+/// with the captured text. The frontend listens, runs the pipeline, and
+/// later calls `replace_selection` to paste the rewrite back.
 fn on_hotkey(app: &AppHandle) {
-    trigger_clipboard_rewrite(app);
+    if !accessibility_granted() {
+        // Surface to the user via the window so they can grant permission.
+        show_main_window(app);
+        let _ = app.emit(
+            "rewrite:selection",
+            SelectionPayload {
+                text: None,
+                error: Some(
+                    "Accessibility permission needed for selection capture. Open Settings → Privacy & Security → Accessibility and toggle Newt on."
+                        .into(),
+                ),
+            },
+        );
+        return;
+    }
+
+    // Order matters: capture *before* stealing focus.
+
+    // 1. Remember which app the user is in so Replace can return there.
+    let pid = frontmost_pid();
+    if let Some(state) = app.try_state::<CaptureState>()
+        && let Ok(mut guard) = state.source_pid.lock()
+    {
+        *guard = pid;
+    }
+
+    // 2. Save the user's current clipboard so the trick is non-destructive.
+    let prior_clipboard = app.clipboard().read_text().ok();
+
+    // 3. Send ⌘C to the still-frontmost source app.
+    if let Err(e) = simulate_copy() {
+        show_main_window(app);
+        let _ = app.emit(
+            "rewrite:selection",
+            SelectionPayload {
+                text: None,
+                error: Some(format!("could not simulate ⌘C: {e}")),
+            },
+        );
+        return;
+    }
+
+    // 4. Wait briefly — the OS needs time to flip the pasteboard.
+    std::thread::sleep(Duration::from_millis(80));
+
+    // 5. Read the now-updated clipboard. Empty string is treated as
+    //    "no selection" (better UX than an error).
+    let captured = app.clipboard().read_text().ok().filter(|s| !s.is_empty());
+
+    // 6. Restore prior clipboard.
+    if let Some(prior) = prior_clipboard {
+        let _ = app.clipboard().write_text(prior);
+    }
+
+    // 7. Now we can show our window and emit the captured text.
+    show_main_window(app);
+    let _ = app.emit(
+        "rewrite:selection",
+        SelectionPayload {
+            text: captured,
+            error: None,
+        },
+    );
+}
+
+fn frontmost_pid() -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::frontmost_app_pid()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+fn simulate_copy() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::simulate_cmd_c()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("selection capture is macOS-only".into())
+    }
 }
 
 fn trigger_clipboard_rewrite(app: &AppHandle) {

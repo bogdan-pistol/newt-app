@@ -4,11 +4,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AccessibilityStatus,
   Prompt,
   PromptInput,
   ProviderStatus,
   ProviderTestResult,
   RewriteEvent,
+  SelectionPayload,
 } from "./types";
 
 export const api = {
@@ -43,4 +45,22 @@ export const api = {
    */
   onClipboardTrigger: (handler: () => void): Promise<UnlistenFn> =>
     listen("rewrite:clipboard-trigger", () => handler()),
+
+  /**
+   * Fires when the global hotkey captures a fresh selection from the
+   * focused app via the ⌘C trick. `payload.text` is the captured text on
+   * success, or null with an `error` reason on failure (most commonly,
+   * Accessibility permission isn't granted).
+   */
+  onSelectionCaptured: (
+    handler: (payload: SelectionPayload) => void,
+  ): Promise<UnlistenFn> =>
+    listen<SelectionPayload>("rewrite:selection", (e) => handler(e.payload)),
+
+  // Accessibility permission + paste-back (PRD §5.2, §5.8).
+  accessibilityStatus: () => invoke<AccessibilityStatus>("accessibility_status"),
+  openAccessibilitySettings: () =>
+    invoke<void>("open_accessibility_settings"),
+  replaceSelection: (text: string) =>
+    invoke<void>("replace_selection", { text }),
 };
