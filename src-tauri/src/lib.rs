@@ -35,6 +35,10 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+mod macos_frontmost;
+#[cfg(target_os = "macos")]
+mod macos_services;
 
 /// Cross-thread state for the capture/replace round-trip. The hotkey
 /// handler stashes the source app's PID before stealing focus; the
@@ -444,6 +448,26 @@ pub fn run() {
         ])
         .setup(|app| {
             app.manage(CaptureState::default());
+
+            // Hand the Services provider an AppHandle and install it on
+            // NSApplication. Mirrors the global hotkey path so selecting
+            // "Rewrite with Newt" from any app's Services submenu has the
+            // same UX as pressing ⌘+;. PRD §9 Phase 5.
+            #[cfg(target_os = "macos")]
+            {
+                let _ = macos_services::APP_HANDLE.set(app.handle().clone());
+                if let Some(mtm) = objc2_foundation::MainThreadMarker::new() {
+                    // Install the workspace-activation observer *before*
+                    // registering the Services provider: the observer is
+                    // how the Service callback recovers the source app's
+                    // PID, since macOS has already activated Newt by the
+                    // time the callback fires.
+                    macos_frontmost::install(mtm);
+                    macos_services::register(mtm);
+                } else {
+                    eprintln!("services: setup not running on main thread; skipping registration");
+                }
+            }
 
             // Seed defaults at startup so the UI always sees a populated
             // prompts dir, mirroring what `newt-cli`'s `main()` does.
