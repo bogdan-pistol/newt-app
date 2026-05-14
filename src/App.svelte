@@ -31,7 +31,7 @@
 
   onMount(async () => {
     await refresh();
-    unlistenTray = await api.onTrayRewriteClipboard(() => {
+    unlistenTray = await api.onClipboardTrigger(() => {
       rewritePanel?.rewriteFromClipboard();
     });
   });

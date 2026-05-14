@@ -28,6 +28,7 @@ use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Provider summary for the settings UI. Mirrors the shape of `newt
 /// providers list --json` so the CLI and GUI stay aligned.
@@ -255,10 +256,31 @@ fn build_real_provider(name: &str) -> Result<Box<dyn Provider>, String> {
 
 // ────────────────────────────────────── app entry ────────────────────────────
 
+/// Default global hotkey — ⌘+; (Cmd + Semicolon). PRD §5.1, §10.
+///
+/// Carbon's `RegisterEventHotKey` (used by `tauri-plugin-global-shortcut`
+/// on macOS) does not require Accessibility permission — that's only
+/// needed later for simulating keystrokes (CGEventPost) when we wire real
+/// selection capture and paste-back. So this hotkey ships standalone.
+fn default_hotkey() -> Shortcut {
+    Shortcut::new(Some(Modifiers::SUPER), Code::Semicolon)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    // Fire only on key-press (not release) so a single tap
+                    // doesn't trigger twice.
+                    if event.state == ShortcutState::Pressed && shortcut == &default_hotkey() {
+                        on_hotkey(app);
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             list_prompts,
             create_prompt,
@@ -282,7 +304,7 @@ pub fn run() {
             let rewrite_clipboard = MenuItem::with_id(
                 app,
                 "rewrite_clipboard",
-                "Rewrite Clipboard…",
+                "Rewrite Clipboard… (⌘;)",
                 true,
                 None::<&str>,
             )?;
@@ -300,16 +322,20 @@ pub fn run() {
                 .icon(icon)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
-                    "rewrite_clipboard" => {
-                        show_main_window(app);
-                        // Frontend listens for this and prefills the rewrite panel
-                        // from the current clipboard.
-                        let _ = app.emit("tray:rewrite-clipboard", ());
-                    }
+                    "rewrite_clipboard" => trigger_clipboard_rewrite(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .build(app)?;
+
+            // Register the global hotkey. PRD §10 calls out conflict
+            // handling ("⌘+; is occasionally bound to spell-check in
+            // macOS text views") — for now we log register failures
+            // rather than crash. Friendly remap UX comes when the
+            // settings panel grows a hotkey picker.
+            if let Err(e) = app.global_shortcut().register(default_hotkey()) {
+                eprintln!("could not register hotkey ⌘+;: {e}");
+            }
 
             Ok(())
         })
@@ -325,8 +351,21 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+/// Hotkey handler: bring window forward and trigger a clipboard rewrite,
+/// matching the tray menu's "Rewrite Clipboard…" UX. The frontend reads
+/// the current clipboard and runs the pipeline.
+fn on_hotkey(app: &AppHandle) {
+    trigger_clipboard_rewrite(app);
+}
+
+fn trigger_clipboard_rewrite(app: &AppHandle) {
+    show_main_window(app);
+    let _ = app.emit("rewrite:clipboard-trigger", ());
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }

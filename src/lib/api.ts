@@ -35,6 +35,12 @@ export const api = {
   ): Promise<UnlistenFn> =>
     listen<RewriteEvent>("rewrite:event", (e) => handler(e.payload)),
 
-  onTrayRewriteClipboard: (handler: () => void): Promise<UnlistenFn> =>
-    listen("tray:rewrite-clipboard", () => handler()),
+  /**
+   * Fires when the user wants to rewrite the current clipboard contents —
+   * either via the tray menu's "Rewrite Clipboard…" item or via the
+   * global hotkey (default ⌘+;). Frontend reads the clipboard, runs the
+   * pipeline, and shows the streaming result in the rewrite panel.
+   */
+  onClipboardTrigger: (handler: () => void): Promise<UnlistenFn> =>
+    listen("rewrite:clipboard-trigger", () => handler()),
 };
