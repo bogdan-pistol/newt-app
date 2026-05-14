@@ -195,6 +195,147 @@ pub fn seed_defaults_if_empty(paths: &Paths) -> Result<usize> {
     Ok(DEFAULT_PROMPTS.len())
 }
 
+/// Inputs for creating or updating a prompt. The id is supplied separately
+/// (it derives from the filename and is immutable for `update`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptInput {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub emoji: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub instructions: String,
+}
+
+/// Validate a prompt id (filename stem). Must match the pattern
+/// `^[a-z0-9][a-z0-9-]*[a-z0-9]$` (kebab-case, 2–64 chars, no consecutive
+/// or leading/trailing hyphens). This both protects against path traversal
+/// (no `/`, `.`, `..`) and keeps ids tidy for display.
+pub fn validate_id(id: &str) -> Result<()> {
+    if id.len() < 2 || id.len() > 64 {
+        return Err(anyhow!("id must be 2–64 characters; got {}", id.len()));
+    }
+    let bytes = id.as_bytes();
+    let valid_char = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-';
+    if !bytes.iter().all(|b| valid_char(*b)) {
+        return Err(anyhow!(
+            "id must contain only lowercase letters, digits, and hyphens"
+        ));
+    }
+    if bytes[0] == b'-' || bytes[bytes.len() - 1] == b'-' {
+        return Err(anyhow!("id must not start or end with a hyphen"));
+    }
+    if bytes.windows(2).any(|w| w[0] == b'-' && w[1] == b'-') {
+        return Err(anyhow!("id must not contain consecutive hyphens"));
+    }
+    Ok(())
+}
+
+fn validate_input(input: &PromptInput) -> Result<()> {
+    if input.name.trim().is_empty() {
+        return Err(anyhow!("name is required"));
+    }
+    if input.instructions.trim().is_empty() {
+        return Err(anyhow!("instructions are required"));
+    }
+    Ok(())
+}
+
+/// Serialise a `Prompt`-shaped value to the on-disk format (YAML
+/// frontmatter + body). The body is trimmed and gets a single trailing
+/// newline so editors don't show a "no newline at end of file" indicator.
+fn serialize(input: &PromptInput) -> Result<String> {
+    let fm = PromptFrontmatter {
+        name: input.name.trim().to_string(),
+        description: input.description.trim().to_string(),
+        emoji: input
+            .emoji
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+        model: input
+            .model
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty()),
+    };
+    let yaml = serde_yml::to_string(&fm).context("serialising prompt frontmatter")?;
+    let body = input.instructions.trim();
+    Ok(format!("---\n{yaml}---\n{body}\n"))
+}
+
+/// Atomically write `contents` to `path` by writing to a sibling tempfile
+/// and renaming. Avoids torn writes if the process is killed mid-write.
+fn atomic_write(path: &Path, contents: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow!("path has no parent: {}", path.display()))?;
+    std::fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    let tmp = parent.join(format!(
+        ".{}.tmp",
+        path.file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("prompt")
+    ));
+    std::fs::write(&tmp, contents).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("renaming to {}", path.display()))?;
+    Ok(())
+}
+
+/// Create a new prompt at `<prompts_dir>/<id>.md`. Errors if a prompt with
+/// that id already exists on disk OR is a bundled default (so users can't
+/// shadow defaults silently — they must pick a different id).
+pub fn create(paths: &Paths, id: &str, input: &PromptInput) -> Result<()> {
+    validate_id(id)?;
+    validate_input(input)?;
+    paths.ensure_dirs()?;
+    let path = paths.prompts_dir().join(format!("{id}.md"));
+    if path.exists() {
+        return Err(anyhow!("prompt `{id}` already exists on disk"));
+    }
+    if DEFAULT_PROMPTS
+        .iter()
+        .any(|(filename, _)| filename.trim_end_matches(".md") == id)
+    {
+        return Err(anyhow!(
+            "`{id}` is the id of a bundled default prompt; pick a different id"
+        ));
+    }
+    atomic_write(&path, &serialize(input)?)
+}
+
+/// Overwrite an existing prompt. Creates the on-disk file if the prompt
+/// existed only as a bundled default (this is the user customising it).
+pub fn update(paths: &Paths, id: &str, input: &PromptInput) -> Result<()> {
+    validate_id(id)?;
+    validate_input(input)?;
+    paths.ensure_dirs()?;
+    let path = paths.prompts_dir().join(format!("{id}.md"));
+    let exists_anywhere = path.exists()
+        || DEFAULT_PROMPTS
+            .iter()
+            .any(|(filename, _)| filename.trim_end_matches(".md") == id);
+    if !exists_anywhere {
+        return Err(anyhow!("no prompt with id `{id}` to update"));
+    }
+    atomic_write(&path, &serialize(input)?)
+}
+
+/// Delete a prompt's on-disk file. If the id matches a bundled default,
+/// the on-disk override is removed (the bundled default reappears on next
+/// load); if the id has no on-disk file, returns `Ok(false)`.
+pub fn delete(paths: &Paths, id: &str) -> Result<bool> {
+    validate_id(id)?;
+    let path = paths.prompts_dir().join(format!("{id}.md"));
+    if !path.exists() {
+        return Ok(false);
+    }
+    std::fs::remove_file(&path).with_context(|| format!("deleting {}", path.display()))?;
+    Ok(true)
+}
+
 fn write_defaults(dir: &Path) -> Result<()> {
     for (filename, contents) in DEFAULT_PROMPTS {
         std::fs::write(dir.join(filename), contents)

@@ -63,7 +63,11 @@ pub enum RewriteEvent {
 }
 
 /// An LLM provider capable of running a single rewrite call.
-pub trait Provider {
+///
+/// `Send` supertrait — providers must be movable across threads so the
+/// streaming pipeline (Tauri's worker thread, future async runtimes) can
+/// own a `Box<dyn Provider>` and call `rewrite` from a non-main thread.
+pub trait Provider: Send {
     /// Stable identifier used in config and the CLI (e.g. `"mock"`, `"openai"`).
     fn name(&self) -> &'static str;
 

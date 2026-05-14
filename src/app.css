@@ -191,3 +191,110 @@ code,
   font-size: 0.82rem;
   opacity: 0.55;
 }
+
+/* ---------------- buttons & inputs (used across components) ---------------- */
+
+button {
+  font: inherit;
+  padding: 0.42rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--btn-border, rgba(0, 0, 0, 0.18));
+  background: var(--btn-bg, transparent);
+  color: inherit;
+  cursor: pointer;
+  transition: background 80ms ease, border-color 80ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent, #2d6cdf);
+  color: white;
+  border-color: transparent;
+  font-weight: 500;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #245bbd;
+}
+
+button.secondary {
+  background: transparent;
+}
+
+button.danger {
+  color: rgb(190, 50, 50);
+  border-color: rgba(190, 50, 50, 0.4);
+}
+
+button.danger:hover:not(:disabled) {
+  background: rgba(190, 50, 50, 0.08);
+}
+
+button.tight {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  button {
+    --btn-border: rgba(255, 255, 255, 0.18);
+  }
+  button:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  button.primary:hover:not(:disabled) {
+    background: #4082f5;
+  }
+  button.danger {
+    color: rgb(240, 110, 110);
+    border-color: rgba(240, 110, 110, 0.4);
+  }
+  button.danger:hover:not(:disabled) {
+    background: rgba(240, 110, 110, 0.1);
+  }
+}
+
+input[type="text"],
+input[type="password"],
+select,
+textarea {
+  font: inherit;
+  padding: 0.42rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--input-border, rgba(0, 0, 0, 0.15));
+  background: var(--input-bg, white);
+  color: inherit;
+  width: 100%;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid rgba(45, 108, 223, 0.4);
+  outline-offset: -1px;
+  border-color: rgba(45, 108, 223, 0.6);
+}
+
+textarea {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.88rem;
+  resize: vertical;
+}
+
+@media (prefers-color-scheme: dark) {
+  input[type="text"],
+  input[type="password"],
+  select,
+  textarea {
+    --input-bg: #2a2a2a;
+    --input-border: rgba(255, 255, 255, 0.15);
+  }
+}
