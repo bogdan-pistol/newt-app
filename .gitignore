@@ -2,7 +2,10 @@
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon?
+# Match the macOS metadata "Icon\r" file at any level, but not directories
+# named "icons" / "Icons" (case-insensitive filesystems would otherwise hide
+# our Tauri app icons under src-tauri/icons/).
+Icon[\r]
 ._*
 .Spotlight-V100
 .Trashes

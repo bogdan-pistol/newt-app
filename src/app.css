@@ -1,0 +1,193 @@
+:root {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color-scheme: light dark;
+
+  color: #1a1a1a;
+  background-color: #fafafa;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #e6e6e6;
+    background-color: #1a1a1a;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1.75rem 2rem 2.5rem;
+}
+
+header {
+  margin-bottom: 1.75rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.subtitle {
+  margin: 0.15rem 0 0;
+  opacity: 0.55;
+  font-size: 0.95rem;
+}
+
+section {
+  margin-bottom: 2rem;
+}
+
+ul.providers,
+ul.prompts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--row-border, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+ul.providers li,
+ul.prompts li {
+  padding: 0.65rem 0.9rem;
+  border-top: 1px solid var(--row-border, rgba(0, 0, 0, 0.08));
+}
+
+ul.providers li:first-child,
+ul.prompts li:first-child {
+  border-top: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  ul.providers,
+  ul.prompts,
+  ul.providers li,
+  ul.prompts li {
+    --row-border: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.primary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.secondary {
+  font-size: 0.85rem;
+  opacity: 0.55;
+}
+
+.muted {
+  opacity: 0.55;
+  font-size: 0.9rem;
+}
+
+.error {
+  margin: 0 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  background: rgba(220, 50, 50, 0.08);
+  border: 1px solid rgba(220, 50, 50, 0.4);
+  font-size: 0.9rem;
+}
+
+.provider-name,
+.prompt-name {
+  font-weight: 500;
+}
+
+.emoji {
+  font-size: 1.05rem;
+  width: 1.4rem;
+  text-align: center;
+}
+
+code,
+.prompt-id {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  opacity: 0.75;
+}
+
+@media (prefers-color-scheme: dark) {
+  code,
+  .prompt-id {
+    background: rgba(255, 255, 255, 0.07);
+  }
+}
+
+.status {
+  margin-left: auto;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+}
+
+.status.ok {
+  background: rgba(40, 160, 80, 0.15);
+  color: rgb(40, 140, 70);
+}
+
+.status.missing {
+  background: rgba(200, 130, 0, 0.15);
+  color: rgb(180, 110, 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  .status.ok {
+    color: rgb(110, 200, 130);
+  }
+  .status.missing {
+    color: rgb(230, 170, 70);
+  }
+}
+
+.hint {
+  margin: 0.6rem 0 0;
+  font-size: 0.82rem;
+  opacity: 0.55;
+}
