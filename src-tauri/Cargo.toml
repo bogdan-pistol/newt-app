@@ -1,0 +1,25 @@
+[package]
+name = "newt-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Newt menu bar app (Tauri shell)"
+
+[[bin]]
+name = "newt-app"
+path = "src/main.rs"
+
+[lib]
+name = "newt_tauri"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+newt-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }

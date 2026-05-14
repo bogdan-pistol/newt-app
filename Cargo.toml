@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/newt-core", "crates/newt-cli"]
+members = ["crates/newt-core", "crates/newt-cli", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
