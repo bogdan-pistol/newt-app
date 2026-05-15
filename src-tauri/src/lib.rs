@@ -15,6 +15,7 @@ use std::thread;
 use std::time::Duration;
 
 use newt_core::{
+    config::Config,
     keychain,
     paths::Paths,
     prompt::{self, Prompt, PromptInput},
@@ -116,6 +117,78 @@ fn list_providers() -> Result<Vec<ProviderStatus>, String> {
     Ok(out)
 }
 
+/// User-editable list of models + currently-selected one for a provider.
+/// Empty `models` from the config layer means "use the bundled default";
+/// the config getter handles that, so what we expose here is always the
+/// effective list the UI should render.
+#[derive(Serialize)]
+struct ProviderModelSettings {
+    models: Vec<String>,
+    current: String,
+}
+
+/// Snapshot of user-configurable settings for the Settings UI.
+/// Mirrors what `Config`'s typed accessors expose and matches the
+/// frontend's `AppSettings` type.
+#[derive(Serialize)]
+struct AppSettings {
+    active_provider: String,
+    /// Keyed by provider name (`"openai"`, `"anthropic"`). Mock has no
+    /// configurable models so it isn't represented here.
+    models: std::collections::BTreeMap<String, ProviderModelSettings>,
+}
+
+#[tauri::command]
+fn get_settings() -> Result<AppSettings, String> {
+    let cfg = Config::load(&paths()?).map_err(|e| format!("{e:#}"))?;
+    let mut models = std::collections::BTreeMap::new();
+    for name in ["openai", "anthropic"] {
+        models.insert(
+            name.to_string(),
+            ProviderModelSettings {
+                models: cfg.provider_models(name),
+                current: cfg.provider_current_model(name),
+            },
+        );
+    }
+    Ok(AppSettings {
+        active_provider: cfg.active_provider(),
+        models,
+    })
+}
+
+#[tauri::command]
+fn set_active_provider(provider: String) -> Result<(), String> {
+    if !PROVIDERS.iter().any(|(name, _, _)| *name == provider) {
+        return Err(format!("unknown provider: `{provider}`"));
+    }
+    let p = paths()?;
+    let mut cfg = Config::load(&p).map_err(|e| format!("{e:#}"))?;
+    cfg.set_active_provider(&provider);
+    cfg.save(&p).map_err(|e| format!("{e:#}"))
+}
+
+/// Replace the full list of models for a provider. Empty list is
+/// allowed (returns the bundled default on next read).
+#[tauri::command]
+fn set_provider_models(provider: String, models: Vec<String>) -> Result<(), String> {
+    require_real_provider(&provider)?;
+    let p = paths()?;
+    let mut cfg = Config::load(&p).map_err(|e| format!("{e:#}"))?;
+    cfg.set_provider_models(&provider, &models);
+    cfg.save(&p).map_err(|e| format!("{e:#}"))
+}
+
+/// Pick which model in the list is currently used by `provider`.
+#[tauri::command]
+fn set_provider_current_model(provider: String, model: String) -> Result<(), String> {
+    require_real_provider(&provider)?;
+    let p = paths()?;
+    let mut cfg = Config::load(&p).map_err(|e| format!("{e:#}"))?;
+    cfg.set_provider_current_model(&provider, &model);
+    cfg.save(&p).map_err(|e| format!("{e:#}"))
+}
+
 #[tauri::command]
 fn set_provider_key(provider: String, key: String) -> Result<(), String> {
     require_real_provider(&provider)?;
@@ -142,7 +215,8 @@ struct ProviderTestResult {
 #[tauri::command]
 fn test_provider(provider: String) -> Result<ProviderTestResult, String> {
     require_real_provider(&provider)?;
-    let prov = build_real_provider(&provider)?;
+    let cfg = Config::load(&paths()?).map_err(|e| format!("{e:#}"))?;
+    let prov = build_real_provider(&provider, &cfg)?;
     let request = RewriteRequest {
         system: Some("Respond with exactly the word 'ok' and nothing else.".to_string()),
         user: "ping".to_string(),
@@ -255,20 +329,22 @@ fn require_real_provider(name: &str) -> Result<(), String> {
 }
 
 fn build_provider(name: &str) -> Result<Box<dyn Provider>, String> {
+    let cfg = Config::load(&paths()?).map_err(|e| format!("{e:#}"))?;
     match name {
         "mock" => Ok(Box::new(MockProvider::echo("[mock] rewrite output"))),
-        "openai" | "anthropic" => build_real_provider(name),
+        "openai" | "anthropic" => build_real_provider(name, &cfg),
         other => Err(format!("unknown provider: `{other}`")),
     }
 }
 
-fn build_real_provider(name: &str) -> Result<Box<dyn Provider>, String> {
+fn build_real_provider(name: &str, cfg: &Config) -> Result<Box<dyn Provider>, String> {
     let key = keychain::get_key(name)
         .map_err(|e| format!("{e:#}"))?
         .ok_or_else(|| format!("no API key for `{name}` — set one in Settings → Providers"))?;
+    let model = cfg.provider_current_model(name);
     Ok(match name {
-        "openai" => Box::new(OpenAiProvider::new(key)),
-        "anthropic" => Box::new(AnthropicProvider::new(key)),
+        "openai" => Box::new(OpenAiProvider::new(key).with_default_model(model)),
+        "anthropic" => Box::new(AnthropicProvider::new(key).with_default_model(model)),
         other => return Err(format!("not a real provider: `{other}`")),
     })
 }
@@ -461,9 +537,23 @@ pub fn run() {
             open_accessibility_settings,
             replace_selection,
             undo_in_source,
+            get_settings,
+            set_active_provider,
+            set_provider_models,
+            set_provider_current_model,
         ])
         .setup(|app| {
             app.manage(CaptureState::default());
+
+            // Make Newt a menu bar app: no Dock icon, no system menu bar.
+            // The tray icon is the only persistent surface; windows appear
+            // on demand via the hotkey, Services menu, or tray "Show
+            // Settings". Matches the product's mental model (Raycast,
+            // Alfred, Magnet, etc.) and incidentally fixes the "click the
+            // Dock icon, see whatever the window was last in" issue:
+            // there is no Dock icon to click.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             // Hand the Services provider an AppHandle and install it on
             // NSApplication. Mirrors the global hotkey path so selecting

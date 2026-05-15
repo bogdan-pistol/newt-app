@@ -2,17 +2,16 @@
   import { onMount, onDestroy, tick } from "svelte";
   import { writeText } from "@tauri-apps/plugin-clipboard-manager";
   import { api } from "./api";
-  import type { Prompt, ProviderStatus, RewriteEvent } from "./types";
+  import type { Prompt, RewriteEvent } from "./types";
 
   type Props = {
     prompts: Prompt[];
-    providers: ProviderStatus[];
     text: string;
     initialError: string | null;
     onClose: () => void;
   };
 
-  let { prompts, providers, text, initialError, onClose }: Props = $props();
+  let { prompts, text, initialError, onClose }: Props = $props();
 
   type Stage = "picker" | "streaming" | "replacing" | "done" | "error";
 
@@ -28,6 +27,10 @@
   let undoing = $state(false);
   let queryInput: HTMLInputElement | null = $state(null);
 
+  // Active provider from settings — single source of truth (no more
+  // first-with-key heuristic). Falls back to mock if settings can't load.
+  let activeProvider = $state("mock");
+
   // Reactive bridge from props → local state. If the parent passes an
   // `initialError` (e.g., the hotkey hit "no Accessibility permission"
   // before any pasteboard read could happen), surface it as the stage.
@@ -42,12 +45,7 @@
   // only as a last resort. This was the bug that produced "[mock] rewrite
   // output" earlier — `enabled[0]` always returned `mock` because mock
   // doesn't need a key.
-  let provider = $derived.by(() => {
-    const real = providers.find((p) => p.needs_key && p.key_set);
-    if (real) return real.name;
-    const mock = providers.find((p) => !p.needs_key);
-    return mock?.name ?? "mock";
-  });
+  let provider = $derived(activeProvider);
 
   let filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
@@ -166,6 +164,15 @@
   }
 
   onMount(async () => {
+    // Pull the user's chosen active provider from settings. If this fails
+    // (corrupt config or whatever), we keep the default `mock` — the
+    // popup will still work, just visibly using the test provider.
+    try {
+      const s = await api.getSettings();
+      activeProvider = s.active_provider;
+    } catch {
+      // ignore; activeProvider stays "mock"
+    }
     // Auto-focus the search input so typing filters immediately.
     await tick();
     queryInput?.focus();

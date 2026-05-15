@@ -5,13 +5,12 @@
   import { readText } from "@tauri-apps/plugin-clipboard-manager";
   import { api } from "./lib/api";
   import type { Prompt, ProviderStatus, SelectionPayload } from "./lib/types";
-  import ProvidersSection from "./lib/ProvidersSection.svelte";
-  import PromptsSection from "./lib/PromptsSection.svelte";
   import Onboarding from "./lib/Onboarding.svelte";
   import PopupPicker from "./lib/PopupPicker.svelte";
+  import SettingsShell from "./lib/settings/SettingsShell.svelte";
 
   // Single window with two modes:
-  //   "settings" — providers, prompts editor, onboarding (default).
+  //   "settings" — sidebar nav (General · Providers · Prompts).
   //   "rewrite"  — picker → streaming → auto-replace, full-window.
   // The Rust side emits events to switch us:
   //   `rewrite:selection`         → enter rewrite mode with captured text
@@ -22,13 +21,6 @@
   let mode = $state<Mode>("settings");
   let selectionText = $state("");
   let selectionError = $state<string | null>(null);
-  /**
-   * Bumped on every entry into rewrite mode. Used as the `{#key}` for
-   * PopupPicker so each new trigger fully remounts the component —
-   * resetting its internal `stage`, `output`, `chosenPrompt`, etc.
-   * Without this, a second ⌘+; press while the previous rewrite's
-   * "done" state was still on screen would just show the old result.
-   */
   let rewriteSeq = $state(0);
 
   let prompts = $state<Prompt[]>([]);
@@ -66,8 +58,6 @@
     mode = "settings";
     selectionText = "";
     selectionError = null;
-    // Hide the window after dismiss — same close-to-tray behavior the
-    // user already expects from the close button.
     getCurrentWindow().hide();
   }
 
@@ -127,78 +117,31 @@
   {#key rewriteSeq}
     <PopupPicker
       {prompts}
-      {providers}
       text={selectionText}
       initialError={selectionError}
       onClose={exitRewriteMode}
     />
   {/key}
+{:else if accessibilityGranted === null || (!loaded && !loadError)}
+  <div class="centered muted">Loading…</div>
+{:else if !accessibilityGranted}
+  <Onboarding onGranted={() => (accessibilityGranted = true)} />
+{:else if loadError}
+  <div class="centered error" role="alert">
+    <strong>Couldn't load:</strong>
+    {loadError}
+  </div>
 {:else}
-  <main>
-    <header>
-      <h1>Newt</h1>
-      <p class="subtitle">System-wide AI text rewriter</p>
-    </header>
-
-    {#if loadError}
-      <div class="error" role="alert">
-        <strong>Couldn't load:</strong> {loadError}
-      </div>
-    {/if}
-
-    {#if accessibilityGranted === null}
-      <div class="muted">Loading…</div>
-    {:else if !accessibilityGranted}
-      <Onboarding onGranted={() => (accessibilityGranted = true)} />
-    {:else if !loaded && !loadError}
-      <div class="muted">Loading…</div>
-    {:else}
-      <p class="hint top-hint">
-        Press <kbd>⌘ ;</kbd> in any app, or right-click selected text → Services →
-        <strong>Rewrite with Newt</strong>, to start a rewrite.
-      </p>
-      <ProvidersSection {providers} {refresh} />
-      <hr />
-      <PromptsSection {prompts} {refresh} />
-    {/if}
-  </main>
+  <SettingsShell {prompts} {providers} {refresh} />
 {/if}
 
 <style>
-  hr {
-    border: none;
-    border-top: 1px solid rgba(0, 0, 0, 0.08);
-    margin: 1.75rem 0;
-  }
-  @media (prefers-color-scheme: dark) {
-    hr {
-      border-top-color: rgba(255, 255, 255, 0.08);
-    }
-  }
-  kbd {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 0.82rem;
-    padding: 0.05rem 0.35rem;
-    border-radius: 4px;
-    border: 1px solid rgba(0, 0, 0, 0.15);
-    background: rgba(0, 0, 0, 0.04);
-  }
-  @media (prefers-color-scheme: dark) {
-    kbd {
-      border-color: rgba(255, 255, 255, 0.15);
-      background: rgba(255, 255, 255, 0.05);
-    }
-  }
-  .top-hint {
-    margin: 0 0 1.5rem;
-    padding: 0.6rem 0.85rem;
-    background: rgba(45, 108, 223, 0.05);
-    border-left: 3px solid var(--accent, #2d6cdf);
-    border-radius: 4px;
-  }
-  @media (prefers-color-scheme: dark) {
-    .top-hint {
-      background: rgba(45, 108, 223, 0.12);
-    }
+  .centered {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    padding: 2rem;
+    text-align: center;
   }
 </style>

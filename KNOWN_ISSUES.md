@@ -36,6 +36,16 @@ A running list of friction we've accepted (or punted on) so future work can find
 
 **Reliable repro:** `cargo test --workspace` repeatedly. `--test-threads=1` is a workaround that masks it.
 
+## Per-prompt `model:` override is deprecated
+
+**Symptom:** A `model:` field in a prompt's YAML frontmatter (e.g. `model: claude-sonnet-4-6`) is parsed but **ignored**. Every rewrite uses the active provider's configured model from Settings, not the prompt's per-file override.
+
+**Status:** Deliberate, post-Phase 5 simplification. The `model` field stays in the parser so existing user prompts don't error, but the engine no longer reads it.
+
+**Why:** Per-prompt overrides made multi-provider setups confusing — a model name from OpenAI is meaningless on Anthropic, and "where do I configure the model" became a guessing game (settings? prompt frontmatter? popup default?). Shipping one source of truth (Settings → Providers) is cleaner UX even if it loses some granularity.
+
+**If you want model-per-task back:** the cleanest re-introduction is "presets" — named (provider, model) pairs that prompts can reference by name. Out of scope for now.
+
 ## Phase 4 part 3 popup history (closed)
 
 We initially built the rewrite UI as a separate Tauri window with `transparent: true` + `decorations: false` + `alwaysOnTop: true`. The combination of focus-stealing rules, transparent-window quirks, and dual-window CSS scoping produced a long string of bugs (Esc not firing, "[mock] rewrite output" because of provider-selection logic, popup truncation near edges, "no selection captured" race, state persisting across invocations, etc.).

@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "Newt",
-        "width": 720,
-        "height": 560,
+        "width": 820,
+        "height": 580,
+        "minWidth": 640,
+        "minHeight": 480,
         "resizable": true,
         "fullscreen": false
       }

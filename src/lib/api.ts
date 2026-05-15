@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AccessibilityStatus,
+  AppSettings,
   Prompt,
   PromptInput,
   ProviderStatus,
@@ -70,4 +71,15 @@ export const api = {
    * un-replace is cleaner than trying to re-paste the original text.
    */
   undoInSource: () => invoke<void>("undo_in_source"),
+
+  // App-wide settings (active provider + model list + current model per
+  // provider). Per-prompt `model:` overrides are deprecated; see
+  // KNOWN_ISSUES.md.
+  getSettings: () => invoke<AppSettings>("get_settings"),
+  setActiveProvider: (provider: string) =>
+    invoke<void>("set_active_provider", { provider }),
+  setProviderModels: (provider: string, models: string[]) =>
+    invoke<void>("set_provider_models", { provider, models }),
+  setProviderCurrentModel: (provider: string, model: string) =>
+    invoke<void>("set_provider_current_model", { provider, model }),
 };
