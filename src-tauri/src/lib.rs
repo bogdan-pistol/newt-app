@@ -312,9 +312,24 @@ fn open_accessibility_settings() -> Result<(), String> {
 }
 
 /// Replace the user's original selection by re-focusing the source app
+/// Replace the user's original selection by re-focusing the source app
 /// and synthesising ⌘V with `text` on the clipboard. Restores the prior
 /// clipboard contents afterwards. Returns `Err` if Accessibility isn't
 /// granted, the source app PID isn't known, or any step fails.
+///
+/// Note on the Gmail-in-Chrome edge case: when Newt's window steals
+/// focus, browsers (and a handful of other apps) clear their text
+/// selection. By the time we re-focus the source app and send ⌘V, the
+/// cursor is at the end of where the selection used to be — so ⌘V just
+/// inserts the rewrite after the original. We tried using the AX API
+/// (`AXSelectedText`) to write directly into the focused element's
+/// selected range; in practice, AX returned success spuriously in apps
+/// that didn't actually accept the write, breaking Slack / WhatsApp /
+/// native apps where the clipboard path was working. So the AX helper
+/// stays in `macos.rs` for future use, but the runtime path is the
+/// reliable clipboard + ⌘V approach. Gmail-in-Chrome remains a known
+/// limitation; users can fall back to Copy + manual paste, or use
+/// Safari (where browsers preserve selection through focus changes).
 #[tauri::command]
 fn replace_selection(
     app: AppHandle,
@@ -445,6 +460,7 @@ pub fn run() {
             accessibility_status,
             open_accessibility_settings,
             replace_selection,
+            undo_in_source,
         ])
         .setup(|app| {
             app.manage(CaptureState::default());
@@ -497,7 +513,10 @@ pub fn run() {
                 .menu(&menu)
                 .icon(icon)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => show_main_window(app),
+                    "show" => {
+                        show_main_window(app);
+                        let _ = app.emit("app:show-settings", ());
+                    }
                     "rewrite_clipboard" => trigger_clipboard_rewrite(app),
                     "quit" => app.exit(0),
                     _ => {}
@@ -528,12 +547,15 @@ pub fn run() {
 }
 
 /// Hotkey handler: capture the current selection (the ⌘C trick from
-/// PRD §5.2), bring Newt's window forward, and emit `rewrite:selection`
-/// with the captured text. The frontend listens, runs the pipeline, and
-/// later calls `replace_selection` to paste the rewrite back.
+/// PRD §5.2), show the popup picker near the cursor, and emit
+/// `rewrite:selection` with the captured text. The frontend listens, lets
+/// the user pick a prompt (or auto-runs if a default is set), runs the
+/// pipeline, and after the rewrite streams in calls `replace_selection`
+/// to auto-paste back.
 fn on_hotkey(app: &AppHandle) {
     if !accessibility_granted() {
-        // Surface to the user via the window so they can grant permission.
+        // Surface to the user via the *settings* window — onboarding lives
+        // there, not in the popup. The popup is for rewriting only.
         show_main_window(app);
         let _ = app.emit(
             "rewrite:selection",
@@ -586,7 +608,7 @@ fn on_hotkey(app: &AppHandle) {
         let _ = app.clipboard().write_text(prior);
     }
 
-    // 7. Now we can show our window and emit the captured text.
+    // 7. Show the popup picker near the cursor and emit the captured text.
     show_main_window(app);
     let _ = app.emit(
         "rewrite:selection",
@@ -624,10 +646,58 @@ fn trigger_clipboard_rewrite(app: &AppHandle) {
     let _ = app.emit("rewrite:clipboard-trigger", ());
 }
 
-fn show_main_window(app: &AppHandle) {
+/// Show the main window. Called by tray menu, hotkey, and Services menu.
+/// The single-window architecture (the popup-window experiment was
+/// reverted in Phase 4 part 3) means rewrite mode is rendered *inside*
+/// this same window — the frontend switches mode based on which event
+/// the Rust side emits (`rewrite:selection` → rewrite mode,
+/// `app:show-settings` → settings mode).
+///
+/// On macOS, activating the app explicitly is non-optional when the
+/// window is summoned from another app — without it, `set_focus` may
+/// visually focus the window while keystrokes still go to whichever app
+/// was active before us.
+pub(crate) fn show_main_window(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    macos::activate_self();
+
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn simulate_undo() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::simulate_cmd_z()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("undo is macOS-only".into())
+    }
+}
+
+/// Re-focus the source app and synthesise ⌘Z. Used by the popup's "Undo"
+/// button after an auto-replace — letting the source app's native undo
+/// stack handle the un-replace is cleaner than trying to re-paste the
+/// original text, and `⌘Z` keeps working from the source app's keyboard
+/// after Newt closes.
+#[tauri::command]
+fn undo_in_source(state: State<'_, CaptureState>) -> Result<(), String> {
+    if !accessibility_granted() {
+        return Err("Accessibility permission required to undo in source app".into());
+    }
+    let pid = state
+        .source_pid
+        .lock()
+        .map_err(|e| format!("state poisoned: {e}"))?
+        .ok_or_else(|| "no source app recorded — capture a selection first".to_string())?;
+
+    if !activate_app(pid) {
+        return Err(format!("could not re-activate source app (pid={pid})"));
+    }
+    std::thread::sleep(Duration::from_millis(80));
+    simulate_undo().map_err(|e| format!("simulating ⌘Z: {e}"))
 }

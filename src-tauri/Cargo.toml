@@ -33,6 +33,7 @@ objc2-foundation = { version = "0.3", features = [
     "NSString",
     "NSDictionary",
     "NSNotification",
+    "NSGeometry",
 ] }
 objc2-app-kit = { version = "0.3", features = [
     "NSWorkspace",
@@ -40,5 +41,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSApplication",
     "NSPasteboard",
     "NSResponder",
+    "NSEvent",
+    "NSScreen",
 ] }
 core-foundation = "0.10"

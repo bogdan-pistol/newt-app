@@ -63,4 +63,11 @@ export const api = {
     invoke<void>("open_accessibility_settings"),
   replaceSelection: (text: string) =>
     invoke<void>("replace_selection", { text }),
+  /**
+   * Undo the just-pasted rewrite by re-focusing the source app and
+   * synthesising ⌘Z. Used by the popup's "Undo" button after an
+   * auto-replace — letting the source app's native undo stack handle the
+   * un-replace is cleaner than trying to re-paste the original text.
+   */
+  undoInSource: () => invoke<void>("undo_in_source"),
 };

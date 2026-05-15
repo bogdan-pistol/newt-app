@@ -94,10 +94,10 @@ fn handle_rewrite(text: Option<String>) {
         *guard = Some(pid);
     }
 
-    // Bring our window forward and emit the selection payload. The
-    // frontend listens for `rewrite:selection` and, when `text` is
-    // `Some`, auto-runs the rewrite.
-    show_main_window(app);
+    // Bring the popup picker forward (anchored near cursor) and emit the
+    // selection payload. The frontend listens for `rewrite:selection` and,
+    // when `text` is `Some`, runs the rewrite once a prompt is picked.
+    crate::show_main_window(app);
 
     let payload = match text {
         Some(t) => SelectionPayload {
@@ -110,16 +110,6 @@ fn handle_rewrite(text: Option<String>) {
         },
     };
     let _ = app.emit("rewrite:selection", payload);
-}
-
-/// Show the main window. Used to bring Newt forward after a Service
-/// invocation so the user sees the rewrite UI.
-fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
 }
 
 /// Install our provider on `NSApplication.sharedApplication` and tell the
