@@ -34,9 +34,11 @@ body {
 }
 
 #app {
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 1.75rem 2rem 2.5rem;
+  /* Settings shell + popup picker both run at full viewport. Each layout
+     adds its own padding internally rather than inheriting from #app. */
+  margin: 0;
+  padding: 0;
+  height: 100vh;
 }
 
 header {
